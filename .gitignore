@@ -1,0 +1,7 @@
+# generated from the user's own GotR copy — never commit
+build/
+*.rar
+*.7z
+*.zip
+Gentlemen_of_the_Row_*/
+__pycache__/
