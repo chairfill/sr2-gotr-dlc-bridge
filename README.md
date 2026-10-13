@@ -16,11 +16,21 @@ bridge on your PC from your own copies.
 | SR2 PC DLC | 1.0.1 | [Kobraworks / Saints Row Mods](https://www.saintsrowmods.com/forum/threads/sr2-pc-dlc.24993) |
 | Gentlemen of the Row | 1.9.2 (`.rar`) | [Saints Row Mods (IdolNinja)](https://www.saintsrowmods.com/forum/threads/gentlemen-of-the-row.24/) |
 | Python | 3.10+ | [python.org](https://www.python.org/downloads/) |
+| *Optional:* SR2 Limit Adjuster | rev 31 | [Saints Row Mods (Clippy95)](https://www.saintsrowmods.com/forum/threads/sr2-limit-adjuster.25006/) |
+| *Optional:* Ultimate ASI Loader | 9.7.4 (`dinput8.dll`, 32-bit) | [ThirteenAG GitHub](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) |
+
+**Want the DLC clothing too?** Install SR2 Limit Adjuster first: put `dinput8.dll` from the
+Ultimate ASI Loader zip and `SR2.LimitAdjuster.asi` + `SR2.LimitAdjuster.ini` in the game folder.
+The bridge detects it and keeps the DLC clothing. Without it, the bridge hides the DLC clothing
+so the game doesn't crash.
 
 Install Juiced and the DLC first, the normal way. Do **not** install GotR with its own
 patch builder — the bridge installs it as Juiced loose files.
 
 ## Install
+
+Download the latest release zip from the [Releases page](https://github.com/chairfill/sr2-gotr-dlc-bridge/releases)
+(or **Code → Download ZIP**), extract it, open a terminal in that folder and run:
 
 ```bat
 python gotr_dlc_bridge.py build --game "C:\Program Files\GOG Galaxy\Games\Saints Row 2" --gotr "C:\Downloads\Gentlemen_of_the_Row_Saints_Row_2_Super_Mod_v1.9.2.rar"
@@ -28,9 +38,13 @@ python gotr_dlc_bridge.py install --game "C:\Program Files\GOG Galaxy\Games\Sain
 ```
 
 - `--gotr` accepts the downloaded `.rar` or the extracted folder.
+- `--clothing auto|keep|drop` (default `auto`): `auto` keeps the DLC clothing when SR2 Limit
+  Adjuster is installed and drops it otherwise. Rebuild and reinstall if you add or remove it.
 - If the game is under `Program Files`, run `install`/`uninstall` from an **administrator** terminal.
 - `install` backs up your `loose.txt` to `loose.txt.before_gotr_bridge` the first time.
 - Back up your saves (`%LOCALAPPDATA%\THQ\Saints Row 2`) before changing mods. GotR recommends a new game.
+
+**Updating from v1.0.0:** download the new version, then run `build` and `install` again.
 
 Check or remove it any time:
 
@@ -39,15 +53,15 @@ python gotr_dlc_bridge.py check --game "<SR2 folder>"
 python gotr_dlc_bridge.py uninstall --game "<SR2 folder>"
 ```
 
-**Co-op:** both players need identical setups — same Juiced, DLC, GotR and bridge versions.
+**Co-op:** both players need identical setups — same Juiced, DLC, GotR, bridge version, and
+both with or both without SR2 Limit Adjuster.
 
 ## What you get / what you give up
 
 - ✅ All of Gentlemen of the Row
 - ✅ DLC missions (Ultor Exposed, Corporate Warfare), vehicles, characters and multiplayer maps
-- ❌ **DLC clothing** (111 items incl. the Unkut pack, and the Swat / Cop Uniform / Barbarian outfits)
-
-The clothing loss is not a choice — see *Why* below.
+- ✅ **DLC clothing** (the Unkut pack, and the Swat / Cop Uniform / Barbarian outfits) —
+  **only with SR2 Limit Adjuster installed**. Without it, the DLC clothing is hidden; see *Why* below.
 
 ## What the bridge changes
 
@@ -58,7 +72,7 @@ The clothing loss is not a choice — see *Why* below.
 | Removes GotR's `dlc04`/`dlc05` rows from `sr2_city_missions.xtbl` | **Crash #2** — both mods registered these missions |
 | Removes GotR's `dlc04`/`dlc05` start navpoints from `mission_start_sr2_city.cts` | The DLC defines the same navpoints |
 | Removes `thread_new("dlc04_main")` / `("dlc05_main")` from `sr2_city.lua` | Those functions exist nowhere; dead code |
-| Adds empty `dlc_customization_items/outfits/stores.xtbl` overrides | **Crash #1** — DLC clothing can't fit (below) |
+| Adds empty `dlc_customization_items/outfits/stores.xtbl` overrides — **only without SR2 Limit Adjuster** | **Crash #1** — DLC clothing can't fit (below) |
 
 Everything else in GotR is installed byte-for-byte unchanged.
 
@@ -86,13 +100,17 @@ items, so emptying them is safe.
 in its `sr2_city_missions.xtbl`; the DLC registers them again. Juiced's DLC mission append then
 gets a NULL mission in the unlock/reward loader and crashes writing `[esi+0xC8]` at `0x69F839`.
 
-**Keeping the DLC clothing** would require raising the 1050-item engine limit, which has to be
-done in Juiced itself. If that happens, this bridge can drop its clothing overrides.
+**Keeping the DLC clothing** needs the 1050-item engine limit raised. SR2 Limit Adjuster
+(Clippy95) does that: with it, the item array is resized from the tables (1281 slots here) and
+the running game registers all 1164 items. The DLC registers 110 of its 111 items either way —
+`Pointy` never registers, even on vanilla + DLC, so that is a DLC quirk, not the bridge.
 
 ## Credits
 
 - **Gentlemen of the Row** — IdolNinja
 - **Juiced Patch** and **SR2 PC DLC** — Kobraworks
+- **SR2 Limit Adjuster** — Clippy95 (Kobraworks)
+- **Ultimate ASI Loader** — ThirteenAG
 - **Saints Row 2** — Volition / Deep Silver
 
 This project is not affiliated with any of them. It redistributes none of their files.
