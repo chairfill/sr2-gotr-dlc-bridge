@@ -7,7 +7,7 @@ alongside the Kobraworks SR2 PC DLC, then optionally installs or removes it.
 This script ships NO GotR, DLC or game files. It reads your own copies and writes
 the bridge next to them.
 
-  python gotr_dlc_bridge.py build   --game "<SR2 folder>" --gotr "<GotR folder or .rar>"
+  python gotr_dlc_bridge.py build   --game "<SR2 folder>" --gotr "<GotR folder or .rar>" [--clothing auto|keep|drop]
   python gotr_dlc_bridge.py install --game "<SR2 folder>"      (run as administrator if
   python gotr_dlc_bridge.py uninstall --game "<SR2 folder>"      the game is in Program Files)
   python gotr_dlc_bridge.py check   --game "<SR2 folder>"
@@ -25,7 +25,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_GAME = r"C:\Program Files\GOG Galaxy\Games\Saints Row 2"
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.path.join(HERE, "build")
@@ -39,6 +39,7 @@ EMPTY_OVERRIDES = ("dlc_customization_items.xtbl", "dlc_customization_outfits.xt
 DLC_MISSIONS = ("dlc04", "dlc05")
 LOOSE_LINES = ["mods/GotR/Optional", "mods/GotR"]
 MARKER = "GOTR.txt"
+LIMIT_ADJUSTER = "SR2.LimitAdjuster.asi"
 
 
 def die(msg):
@@ -71,6 +72,21 @@ def check_game(game):
         die("SR2 PC DLC is not installed (DLC folder / sr2_city_missions_dlc.xtbl missing).")
     if not os.path.isfile(os.path.join(game, "loose.txt")):
         die("loose.txt missing from the game folder; reinstall Juiced Patch.")
+
+
+def has_limit_adjuster(game):
+    """SR2 Limit Adjuster (Clippy95) raises the 1050 customization item cap, so the DLC
+    clothing fits next to GotR. It is loaded by Ultimate ASI Loader (dinput8.dll)."""
+    asi = any(os.path.isfile(os.path.join(game, d, LIMIT_ADJUSTER)) for d in ("", "scripts", "plugins"))
+    return asi and os.path.isfile(os.path.join(game, "dinput8.dll"))
+
+
+def clothing_mode(args):
+    if args.clothing == "keep" and not has_limit_adjuster(args.game):
+        die(f"--clothing keep needs SR2 Limit Adjuster ({LIMIT_ADJUSTER} + dinput8.dll) in the game folder")
+    if args.clothing == "auto":
+        return "keep" if has_limit_adjuster(args.game) else "drop"
+    return args.clothing
 
 
 def locate_gotr(path, workdir):
@@ -129,6 +145,7 @@ def drop_threads(text):
 
 def cmd_build(args):
     check_game(args.game)
+    mode = clothing_mode(args)
     with tempfile.TemporaryDirectory() as tmp:
         root = locate_gotr(args.gotr, tmp)
         modified = os.path.join(root, "modified")
@@ -151,7 +168,8 @@ def cmd_build(args):
     edit(os.path.join(out, "sr2_city_missions.xtbl"), drop_missions)
     edit(os.path.join(out, "mission_start_sr2_city.cts"), drop_navpoints)
     edit(os.path.join(out, "sr2_city.lua"), drop_threads)
-    for n in EMPTY_OVERRIDES:
+    overrides = EMPTY_OVERRIDES if mode == "drop" else ()
+    for n in overrides:
         with open(os.path.join(out, n), "w", newline="\r\n") as f:
             f.write("<root>\n<Table>\n</Table>\n</root>\n")
     with open(os.path.join(BUILD, MARKER), "w", newline="\r\n") as f:
@@ -162,8 +180,12 @@ def cmd_build(args):
             p = os.path.join(d, n)
             manifest[os.path.relpath(p, BUILD).replace("\\", "/")] = sha256(p)
     with open(os.path.join(BUILD, "bridge_manifest.json"), "w") as f:
-        json.dump({"version": VERSION, "files": manifest}, f, indent=1, sort_keys=True)
-    print(f"built {copied} GotR files + {len(PRELOADS)} preload tables + {len(EMPTY_OVERRIDES)} overrides -> {BUILD}")
+        json.dump({"version": VERSION, "clothing": mode, "files": manifest}, f, indent=1, sort_keys=True)
+    print(f"built {copied} GotR files + {len(PRELOADS)} preload tables + {len(overrides)} overrides -> {BUILD}")
+    if mode == "keep":
+        print("DLC clothing: KEPT (SR2 Limit Adjuster found)")
+    else:
+        print("DLC clothing: DROPPED (install SR2 Limit Adjuster and rebuild to keep it)")
     print("next: python gotr_dlc_bridge.py install --game \"...\"  (as administrator for Program Files)")
 
 
@@ -182,7 +204,11 @@ def cmd_install(args):
     manifest_path = os.path.join(BUILD, "bridge_manifest.json")
     if not os.path.isfile(manifest_path):
         die("no build found; run the build command first")
-    manifest = json.load(open(manifest_path))["files"]
+    build = json.load(open(manifest_path))
+    manifest = build["files"]
+    if build.get("clothing", "drop") == "keep" and not has_limit_adjuster(args.game):
+        die("this build keeps the DLC clothing, which crashes without SR2 Limit Adjuster. "
+            "Install it, or rebuild with --clothing drop.")
     try:
         backup = os.path.join(args.game, "loose.txt.before_gotr_bridge")
         if not os.path.exists(backup):
@@ -193,6 +219,11 @@ def cmd_install(args):
             dst = os.path.join(args.game, *rel.split("/"))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(BUILD, *rel.split("/")), dst)
+        if build.get("clothing", "drop") == "keep":
+            for n in EMPTY_OVERRIDES:  # left over from a previous "drop" install
+                stale = os.path.join(args.game, "mods", "GotR", n)
+                if os.path.isfile(stale):
+                    os.remove(stale)
         os.makedirs(os.path.join(args.game, "mods", "GotR", "Optional"), exist_ok=True)
         lines = [l for l in loose_lines(args.game) if l.strip() not in LOOSE_LINES]
         write_loose(args.game, lines + LOOSE_LINES)
@@ -220,8 +251,11 @@ def cmd_check(args):
     problems = []
     gotr = os.path.join(args.game, "mods", "GotR")
     manifest_path = os.path.join(BUILD, "bridge_manifest.json")
+    mode = "drop"
     if os.path.isfile(manifest_path):
-        for rel, digest in json.load(open(manifest_path))["files"].items():
+        build = json.load(open(manifest_path))
+        mode = build.get("clothing", "drop")
+        for rel, digest in build["files"].items():
             p = os.path.join(args.game, *rel.split("/"))
             if rel.startswith("mods/GotR/") and (not os.path.isfile(p) or sha256(p) != digest):
                 problems.append(f"{rel} missing or modified")
@@ -234,15 +268,19 @@ def cmd_check(args):
             problems.append("GotR mission table still registers dlc04/dlc05 (crash #2)")
     for n in EMPTY_OVERRIDES:
         p = os.path.join(gotr, n)
-        if not os.path.isfile(p) or len(ET.parse(p).getroot().find("Table")):
+        if mode == "drop" and (not os.path.isfile(p) or len(ET.parse(p).getroot().find("Table"))):
             problems.append(f"{n} override missing or not empty (crash #1)")
+        if mode == "keep" and os.path.isfile(p):
+            problems.append(f"{n} override present, so the DLC clothing is still hidden")
+    if mode == "keep" and not has_limit_adjuster(args.game):
+        problems.append("DLC clothing kept but SR2 Limit Adjuster is missing (crash #1)")
     for n in EXCLUDE:
         if os.path.exists(os.path.join(gotr, n)):
             problems.append(f"{n} should not be in mods/GotR")
     if problems:
         print("CHECK FAILED:\n  " + "\n  ".join(problems))
         sys.exit(1)
-    print("CHECK OK: bridge installed and intact")
+    print(f"CHECK OK: bridge installed and intact (DLC clothing: {'kept' if mode == 'keep' else 'dropped'})")
 
 
 def main():
@@ -250,6 +288,8 @@ def main():
     ap.add_argument("command", choices=["build", "install", "uninstall", "check"])
     ap.add_argument("--game", default=DEFAULT_GAME, help="Saints Row 2 folder (contains SR2_pc.exe)")
     ap.add_argument("--gotr", help="GotR v1.9.2 .rar or extracted folder (build only)")
+    ap.add_argument("--clothing", choices=["auto", "keep", "drop"], default="auto",
+                    help="DLC clothing: keep needs SR2 Limit Adjuster; auto detects it (build only)")
     args = ap.parse_args()
     if args.command == "build" and not args.gotr:
         ap.error("build needs --gotr")
